@@ -1,0 +1,10 @@
+config ARM
+	bool "ARM architecture"
+	default n
+	help
+	  Support for ARM architecture.
+
+config ARM64
+	bool "64-bit ARM support"
+	depends on ARM
+	default n

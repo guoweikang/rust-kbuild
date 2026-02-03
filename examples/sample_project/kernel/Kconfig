@@ -1,0 +1,9 @@
+config KERNEL_VERSION
+	string "Kernel version"
+	default "1.0.0"
+
+config PREEMPT
+	bool "Preemptible kernel"
+	default n
+	help
+	  Enable kernel preemption.
