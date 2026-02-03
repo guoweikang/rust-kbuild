@@ -13,8 +13,8 @@ impl ConfigReader {
         for line in content.lines() {
             let line = line.trim();
             
-            // Skip comments and empty lines
-            if line.is_empty() || line.starts_with('#') {
+            // Skip empty lines
+            if line.is_empty() {
                 continue;
             }
 
@@ -24,6 +24,11 @@ impl ConfigReader {
                     .trim_start_matches("# ")
                     .trim_end_matches(" is not set");
                 config.insert(name.to_string(), "n".to_string());
+                continue;
+            }
+
+            // Skip other comments
+            if line.starts_with('#') {
                 continue;
             }
 

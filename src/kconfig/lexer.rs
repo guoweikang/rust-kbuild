@@ -88,6 +88,57 @@ impl Lexer {
         &self.file
     }
 
+    pub fn skip_help_text(&mut self) -> String {
+        let mut help = String::new();
+        
+        // Skip any whitespace/newlines immediately after "help" keyword
+        while let Some(ch) = self.current_char() {
+            if ch == '\n' {
+                self.advance();
+                break;
+            } else if ch == ' ' || ch == '\t' || ch == '\r' {
+                self.advance();
+            } else {
+                // No newline after help, unexpected
+                break;
+            }
+        }
+        
+        // Now collect all indented lines
+        loop {
+            // Peek at the start of the line
+            let _line_start = self.position;
+            
+            // Check if this line is indented (starts with space or tab)
+            match self.current_char() {
+                None => break, // EOF
+                Some('\n') => {
+                    // Empty line, consume and continue
+                    self.advance();
+                    help.push('\n');
+                    continue;
+                }
+                Some(' ') | Some('\t') => {
+                    // Indented line, this is help text
+                    // Consume the whole line
+                    while let Some(ch) = self.current_char() {
+                        help.push(ch);
+                        self.advance();
+                        if ch == '\n' {
+                            break;
+                        }
+                    }
+                }
+                _ => {
+                    // Non-indented line, help text is done
+                    break;
+                }
+            }
+        }
+        
+        help
+    }
+
     fn current_char(&self) -> Option<char> {
         self.input[self.position..].chars().next()
     }

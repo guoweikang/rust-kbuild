@@ -13,6 +13,7 @@ pub struct Parser {
     inclusion_chain: Vec<PathBuf>,
 }
 
+#[allow(dead_code)]
 struct FileContext {
     file_path: PathBuf,
     lexer: Lexer,
@@ -372,8 +373,12 @@ impl Parser {
                     properties.range = Some((min, max, cond));
                 }
                 Token::Help => {
-                    self.advance()?;
-                    properties.help = Some(self.parse_help_text()?);
+                    // Don't advance yet - skip help text directly from lexer
+                    let ctx = self.current_context_mut();
+                    let help_text = ctx.lexer.skip_help_text();
+                    properties.help = Some(help_text);
+                    // Now get the next token after skipping help
+                    ctx.current_token = ctx.lexer.next_token()?;
                 }
                 Token::Newline => {
                     self.advance()?;
@@ -677,29 +682,4 @@ impl Parser {
         }
     }
 
-    fn parse_help_text(&mut self) -> Result<String> {
-        self.skip_newlines()?;
-        let help = String::new();
-
-        // Help text is indented, collect all indented lines
-        while !matches!(
-            self.current_context().current_token,
-            Token::Config
-                | Token::MenuConfig
-                | Token::Choice
-                | Token::Menu
-                | Token::EndMenu
-                | Token::If
-                | Token::EndIf
-                | Token::Source
-                | Token::Comment
-                | Token::EndChoice
-                | Token::Eof
-        ) {
-            // For simplicity, just skip help text for now
-            self.advance()?;
-        }
-
-        Ok(help)
-    }
 }
