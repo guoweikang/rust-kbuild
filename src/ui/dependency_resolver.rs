@@ -301,7 +301,10 @@ impl ExprEvaluator {
     fn evaluate(&self, expr: &Expr, symbol_table: &SymbolTable) -> bool {
         match expr {
             Expr::Symbol(name) => symbol_table.is_enabled(name),
-            Expr::Const(val) => val == "y" || val == "m",
+            Expr::Const(val) => {
+                let val_lower = val.to_lowercase();
+                val_lower == "y" || val_lower == "m"
+            }
             Expr::And(left, right) => {
                 self.evaluate(left, symbol_table) && self.evaluate(right, symbol_table)
             }

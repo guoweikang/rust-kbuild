@@ -143,7 +143,7 @@ impl MenuConfigApp {
         self.render_status_bar(frame, chunks[3]);
         
         // Render dialogs
-        if let Some(dialog) = &self.dialog_type.clone() {
+        if let Some(dialog) = &self.dialog_type {
             match dialog {
                 DialogType::Help => self.render_help_modal(frame),
                 DialogType::Save => self.render_save_dialog(frame),
@@ -485,17 +485,19 @@ impl MenuConfigApp {
     }
     
     fn handle_key(&mut self, key: KeyEvent) -> Result<EventResult> {
-        // Handle dialogs first
-        if let Some(dialog) = &self.dialog_type.clone() {
-            return match dialog {
-                DialogType::Help => {
+        // Handle dialogs first - check type without moving
+        let has_dialog = self.dialog_type.is_some();
+        if has_dialog {
+            return match &self.dialog_type {
+                Some(DialogType::Help) => {
                     self.dialog_type = None;
                     Ok(EventResult::Continue)
                 }
-                DialogType::Save => self.handle_save_dialog_key(key),
-                DialogType::DependencyError(_) => self.handle_dependency_error_dialog_key(key),
-                DialogType::CascadeWarning { .. } => self.handle_cascade_warning_dialog_key(key),
-                DialogType::ImplySuggestion { .. } => self.handle_imply_suggestion_dialog_key(key),
+                Some(DialogType::Save) => self.handle_save_dialog_key(key),
+                Some(DialogType::DependencyError(_)) => self.handle_dependency_error_dialog_key(key),
+                Some(DialogType::CascadeWarning { .. }) => self.handle_cascade_warning_dialog_key(key),
+                Some(DialogType::ImplySuggestion { .. }) => self.handle_imply_suggestion_dialog_key(key),
+                None => Ok(EventResult::Continue),
             };
         }
         
@@ -626,53 +628,57 @@ impl MenuConfigApp {
     }
     
     fn handle_cascade_warning_dialog_key(&mut self, key: KeyEvent) -> Result<EventResult> {
-        if let Some(DialogType::CascadeWarning { symbol, .. }) = &self.dialog_type.clone() {
-            let symbol = symbol.clone();
-            match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    // Proceed with disabling
-                    let new_val = ConfigValue::Bool(false);
-                    self.apply_value_change(&symbol, new_val)?;
-                    self.sync_ui_state_from_symbol_table()?;
-                    self.update_enabled_states()?;
-                    self.status_message = Some(format!(" {} disabled", symbol));
-                    self.dialog_type = None;
-                    Ok(EventResult::Continue)
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                    self.dialog_type = None;
-                    Ok(EventResult::Continue)
-                }
-                _ => Ok(EventResult::Continue),
-            }
+        // Extract symbol before any mutable operations
+        let symbol = if let Some(DialogType::CascadeWarning { symbol, .. }) = &self.dialog_type {
+            symbol.clone()
         } else {
-            Ok(EventResult::Continue)
+            return Ok(EventResult::Continue);
+        };
+        
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Proceed with disabling
+                let new_val = ConfigValue::Bool(false);
+                self.apply_value_change(&symbol, new_val)?;
+                self.sync_ui_state_from_symbol_table()?;
+                self.update_enabled_states()?;
+                self.status_message = Some(format!(" {} disabled", symbol));
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            _ => Ok(EventResult::Continue),
         }
     }
     
     fn handle_imply_suggestion_dialog_key(&mut self, key: KeyEvent) -> Result<EventResult> {
-        if let Some(DialogType::ImplySuggestion { implied }) = &self.dialog_type.clone() {
-            let implied = implied.clone();
-            match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    // Enable implied symbols
-                    for symbol in &implied {
-                        self.symbol_table.set_value(symbol, "y".to_string());
-                    }
-                    self.sync_ui_state_from_symbol_table()?;
-                    self.update_enabled_states()?;
-                    self.status_message = Some(format!(" Enabled: {}", implied.join(", ")));
-                    self.dialog_type = None;
-                    Ok(EventResult::Continue)
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                    self.dialog_type = None;
-                    Ok(EventResult::Continue)
-                }
-                _ => Ok(EventResult::Continue),
-            }
+        // Extract implied list before any mutable operations
+        let implied = if let Some(DialogType::ImplySuggestion { implied }) = &self.dialog_type {
+            implied.clone()
         } else {
-            Ok(EventResult::Continue)
+            return Ok(EventResult::Continue);
+        };
+        
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Enable implied symbols
+                for symbol in &implied {
+                    self.symbol_table.set_value(symbol, "y".to_string());
+                }
+                self.sync_ui_state_from_symbol_table()?;
+                self.update_enabled_states()?;
+                self.status_message = Some(format!(" Enabled: {}", implied.join(", ")));
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            _ => Ok(EventResult::Continue),
         }
     }
     
