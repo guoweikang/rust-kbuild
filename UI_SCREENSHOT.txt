@@ -1,0 +1,77 @@
+Rust Kbuild TUI Menuconfig - UI Layout
+=======================================
+
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ 🔧 Rust Kbuild Configuration    Changed: 2  [S]ave [Q]uit                     │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ 🔍 Search: _                                                                    │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ Configuration Menu ─────────────────┐┌─ 📖 Help & Details ──────────────────┐
+│ ⚙️  [✓] HAVE_ARCH                     ││ 📖 Enable debugging                  │
+│ 📁 Architecture Selection            ││                                       │
+│ 📁 Kernel Configuration              ││ Type: Bool                            │
+│ ⚙️  [ ] Enable debugging              ││ ID: DEBUG                             │
+│ ⚙️  [✗] Verbose output                ││ Status: Disabled                      │
+│                                       ││                                       │
+│                                       ││ Description:                          │
+│                                       ││ ━━━━━━━━━━━━                          │
+│                                       ││ Enable debugging features.            │
+│                                       ││                                       │
+│                                       ││                                       │
+│                                       ││                                       │
+│                                       ││                                       │
+│                                       ││                                       │
+│                                       ││                                       │
+└───────────────────────────────────────┘└───────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ ↑↓:Navigate │ Space:Toggle │ Enter:Open │ /:Search │ ?:Help │ ESC:Back       │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+
+Feature Highlights:
+===================
+
+1. Header Bar
+   - Shows project name
+   - Displays number of modified options
+   - Quick access to Save/Quit commands
+
+2. Search Bar
+   - Activated by pressing '/'
+   - Fuzzy search across all options
+   - Real-time filtering
+
+3. Left Panel - Configuration Menu
+   - Hierarchical menu structure
+   - Visual icons for different item types:
+     * ⚙️  Configuration option
+     * 📁 Submenu
+     * [✓] Enabled
+     * [ ] Disabled
+     * [M] Module
+     * [✗] Disabled due to dependencies
+   - Color-coded selection (highlighted in cyan)
+   - Indentation shows menu depth
+
+4. Right Panel - Help & Details
+   - Shows detailed information for selected item
+   - Displays type and symbol ID
+   - Current status/value
+   - Help text from Kconfig
+   - Dependencies and selections (when applicable)
+
+5. Status Bar
+   - Quick reference for keyboard shortcuts
+   - Shows current status messages
+
+Keyboard Navigation:
+===================
+- Arrow keys or vim keys (hjkl) for navigation
+- Enter/Space to interact with items
+- / for search
+- ? for help modal
+- s to save, q to quit
