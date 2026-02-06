@@ -12,23 +12,27 @@ impl ConfigWriter {
 
         writeln!(file, "#")?;
         writeln!(file, "# Automatically generated file; DO NOT EDIT.")?;
+        writeln!(file, "# Rust Kbuild Configuration")?;
         writeln!(file, "#")?;
 
         for (name, symbol) in symbols.all_symbols() {
+            // Strip CONFIG_ prefix if present
+            let clean_name = name.strip_prefix("CONFIG_").unwrap_or(name);
+            
             if let Some(value) = &symbol.value {
                 match value.as_str() {
                     "y" | "m" => {
-                        writeln!(file, "{}={}", name, value)?;
+                        writeln!(file, "{}={}", clean_name, value)?;
                     }
                     "n" => {
-                        writeln!(file, "# {} is not set", name)?;
+                        writeln!(file, "# {} is not set", clean_name)?;
                     }
                     _ => {
-                        writeln!(file, "{}=\"{}\"", name, value)?;
+                        writeln!(file, "{}=\"{}\"", clean_name, value)?;
                     }
                 }
             } else {
-                writeln!(file, "# {} is not set", name)?;
+                writeln!(file, "# {} is not set", clean_name)?;
             }
         }
 
