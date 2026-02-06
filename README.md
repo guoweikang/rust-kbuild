@@ -288,7 +288,7 @@ Options:
 rkconf parse --kconfig Kconfig
 ```
 
-### `rkconf menuconfig` *(Coming Soon)*
+### `rkconf menuconfig`
 Interactive terminal UI for configuration.
 
 ```bash
@@ -298,6 +298,17 @@ Options:
   -k, --kconfig <FILE>   Kconfig file path [default: Kconfig]
   -s, --srctree <DIR>    Source tree root [default: .]
 ```
+
+**Features:**
+- Modern three-panel layout (menu tree, details, status bar)
+- Intuitive navigation with arrow keys or vim-style (hjkl) keys
+- Live search with fuzzy matching (press `/`)
+- Visual indicators for enabled/disabled options
+- Real-time value toggling with Space key
+- Save/load with modification tracking
+- Built-in help system (press `?`)
+
+See [MENUCONFIG_GUIDE.md](MENUCONFIG_GUIDE.md) for detailed usage.
 
 ### `rkconf defconfig` *(Coming Soon)*
 Apply a defconfig file.
@@ -464,11 +475,11 @@ cargo doc --open
 - Configuration generators (auto.conf, autoconf.h)
 - Oldconfig with change detection
 - Saveconfig command
+- **Interactive menuconfig TUI** ✨
 - Command-line interface
 - Comprehensive test suite
 
 ### 🚧 In Progress
-- Interactive menuconfig TUI
 - Defconfig support
 
 ### 📋 Planned
