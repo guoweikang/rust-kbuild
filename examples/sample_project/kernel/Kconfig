@@ -7,3 +7,30 @@ config PREEMPT
 	default n
 	help
 	  Enable kernel preemption.
+
+config ADVANCED_FEATURES
+	bool "Advanced kernel features"
+	default n
+	help
+	  Enable advanced kernel features.
+
+config SCHEDULER_RT
+	bool "Real-time scheduler"
+	depends on ADVANCED_FEATURES
+	select PREEMPT
+	help
+	  Enable real-time scheduler support.
+	  This automatically enables kernel preemption.
+
+config MEMORY_HOTPLUG
+	bool "Memory hotplug support"
+	depends on ADVANCED_FEATURES
+	help
+	  Support for hot-plugging memory modules.
+
+config PROFILING
+	bool "Profiling support"
+	imply ADVANCED_FEATURES
+	help
+	  Enable kernel profiling.
+	  This implies advanced features but doesn't require them.
