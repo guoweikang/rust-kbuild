@@ -27,15 +27,19 @@ pub fn saveconfig_command(
             symbols.add_symbol(clean_name.to_string(), config.symbol_type.clone());
             
             // Apply default value if present
+            // Note: This is a simplified implementation that only handles simple
+            // constant and symbol expressions. Full expression evaluation
+            // (with dependencies and conditional defaults) is not yet implemented.
             if let Some(default_expr) = &config.properties.default {
-                // For simple cases, extract the value from Expr
-                // In a full implementation, we'd evaluate the expression
+                // Extract value from simple expressions
                 if let crate::kconfig::ast::Expr::Const(val) = default_expr {
                     symbols.set_value(clean_name, val.clone());
                 } else if let crate::kconfig::ast::Expr::Symbol(sym) = default_expr {
                     // Handle default values like 'y' or 'n'
                     symbols.set_value(clean_name, sym.clone());
                 }
+                // Complex expressions (e.g., conditional defaults with 'if')
+                // would require full expression evaluation and are not handled here
             } else {
                 // Set to 'n' if no default
                 match config.symbol_type {

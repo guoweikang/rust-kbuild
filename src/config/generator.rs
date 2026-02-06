@@ -4,6 +4,12 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+/// ConfigGenerator generates build system configuration files.
+/// 
+/// Note: Modules (tristate 'm' values) are treated as 'y' in this implementation
+/// as the rust-kbuild project does not currently support loadable modules.
+/// This is a deviation from the Linux kernel Kconfig which generates separate
+/// _MODULE defines for module options.
 pub struct ConfigGenerator;
 
 impl ConfigGenerator {
@@ -46,7 +52,9 @@ impl ConfigGenerator {
                         writeln!(file, "#define {} 1", clean_name)?;
                     }
                     "m" => {
-                        // Treat modules as 'y' (no module support)
+                        // Treat modules as 'y' (no module support in rust-kbuild)
+                        // This is a simplification compared to Linux Kconfig which would
+                        // generate a separate _MODULE define
                         writeln!(file, "#define {} 1", clean_name)?;
                     }
                     "n" => {
