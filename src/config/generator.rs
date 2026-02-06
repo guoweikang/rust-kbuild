@@ -15,9 +15,12 @@ impl ConfigGenerator {
         writeln!(file, "#")?;
 
         for (name, symbol) in symbols.all_symbols() {
+            // Strip CONFIG_ prefix if present
+            let clean_name = name.strip_prefix("CONFIG_").unwrap_or(name);
+            
             if let Some(value) = &symbol.value {
                 if value != "n" {
-                    writeln!(file, "{}={}", name, value)?;
+                    writeln!(file, "{}={}", clean_name, value)?;
                 }
             }
         }
@@ -34,19 +37,23 @@ impl ConfigGenerator {
         writeln!(file)?;
 
         for (name, symbol) in symbols.all_symbols() {
+            // Strip CONFIG_ prefix if present
+            let clean_name = name.strip_prefix("CONFIG_").unwrap_or(name);
+            
             if let Some(value) = &symbol.value {
                 match value.as_str() {
                     "y" => {
-                        writeln!(file, "#define {} 1", name)?;
+                        writeln!(file, "#define {} 1", clean_name)?;
                     }
                     "m" => {
-                        writeln!(file, "#define {}_MODULE 1", name)?;
+                        // Treat modules as 'y' (no module support)
+                        writeln!(file, "#define {} 1", clean_name)?;
                     }
                     "n" => {
                         // Don't define anything for disabled options
                     }
                     _ => {
-                        writeln!(file, "#define {} \"{}\"", name, value)?;
+                        writeln!(file, "#define {} \"{}\"", clean_name, value)?;
                     }
                 }
             }

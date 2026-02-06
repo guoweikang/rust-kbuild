@@ -18,12 +18,14 @@ impl ConfigReader {
                 continue;
             }
 
-            // Handle "# CONFIG_XXX is not set"
-            if line.starts_with("# CONFIG_") && line.ends_with(" is not set") {
+            // Handle "# CONFIG_XXX is not set" or "# XXX is not set"
+            if line.starts_with('#') && line.ends_with(" is not set") {
                 let name = line
                     .trim_start_matches("# ")
                     .trim_end_matches(" is not set");
-                config.insert(name.to_string(), "n".to_string());
+                // Strip CONFIG_ prefix if present for backward compatibility
+                let clean_name = name.strip_prefix("CONFIG_").unwrap_or(name);
+                config.insert(clean_name.to_string(), "n".to_string());
                 continue;
             }
 
@@ -32,7 +34,7 @@ impl ConfigReader {
                 continue;
             }
 
-            // Handle "CONFIG_XXX=value"
+            // Handle "CONFIG_XXX=value" or "XXX=value"
             if let Some(pos) = line.find('=') {
                 let name = line[..pos].trim();
                 let value = line[pos + 1..].trim();
@@ -40,7 +42,10 @@ impl ConfigReader {
                 // Remove quotes from string values
                 let value = value.trim_matches('"');
                 
-                config.insert(name.to_string(), value.to_string());
+                // Strip CONFIG_ prefix if present for backward compatibility
+                let clean_name = name.strip_prefix("CONFIG_").unwrap_or(name);
+                
+                config.insert(clean_name.to_string(), value.to_string());
             }
         }
 
