@@ -64,6 +64,40 @@ pub enum Commands {
         #[arg(short, long, default_value = ".")]
         srctree: PathBuf,
     },
+
+    /// Load an existing .config and detect changes (oldconfig)
+    Oldconfig {
+        /// Path to existing .config file
+        #[arg(short, long, default_value = ".config")]
+        config: PathBuf,
+
+        /// Path to Kconfig file
+        #[arg(short, long, default_value = "Kconfig")]
+        kconfig: PathBuf,
+
+        /// Source tree path
+        #[arg(short, long, default_value = ".")]
+        srctree: PathBuf,
+
+        /// Automatically apply defaults to new symbols
+        #[arg(long)]
+        auto_defaults: bool,
+    },
+
+    /// Save current configuration
+    Saveconfig {
+        /// Output path for .config
+        #[arg(short, long, default_value = ".config")]
+        output: PathBuf,
+
+        /// Path to Kconfig file (to get current symbols)
+        #[arg(short, long, default_value = "Kconfig")]
+        kconfig: PathBuf,
+
+        /// Source tree path
+        #[arg(short, long, default_value = ".")]
+        srctree: PathBuf,
+    },
 }
 
 pub fn parse_command(kconfig: PathBuf, srctree: PathBuf) -> Result<()> {
@@ -128,6 +162,12 @@ pub fn run_cli() -> Result<()> {
         }
         Commands::Generate { config, kconfig, srctree } => {
             generate_command(config, kconfig, srctree)
+        }
+        Commands::Oldconfig { config, kconfig, srctree, auto_defaults } => {
+            crate::cli::oldconfig::oldconfig_command(config, kconfig, srctree, auto_defaults)
+        }
+        Commands::Saveconfig { output, kconfig, srctree } => {
+            crate::cli::saveconfig::saveconfig_command(output, kconfig, srctree)
         }
     }
 }
