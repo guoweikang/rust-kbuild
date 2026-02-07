@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::kconfig::{SymbolTable, SymbolType};
+use crate::ui::dependency_resolver::{DependencyResolver, DependencyError};
 use crate::ui::events::EventResult;
 use crate::ui::rendering::Theme;
 use crate::ui::state::{ConfigState, ConfigValue, MenuItem, MenuItemKind, NavigationState, TristateValue};
@@ -22,10 +23,20 @@ pub enum PanelFocus {
     Dialog,
 }
 
+#[derive(Debug, Clone)]
+pub enum DialogType {
+    Help,
+    Save,
+    DependencyError(DependencyError),
+    CascadeWarning { symbol: String, affected: Vec<String> },
+    ImplySuggestion { implied: Vec<String> },
+}
+
 pub struct MenuConfigApp {
     config_state: ConfigState,
     symbol_table: SymbolTable,
     navigation: NavigationState,
+    dependency_resolver: DependencyResolver,
     
     // Search state
     search_active: bool,
@@ -33,8 +44,7 @@ pub struct MenuConfigApp {
     
     // UI state
     focus: PanelFocus,
-    show_help_modal: bool,
-    show_save_dialog: bool,
+    dialog_type: Option<DialogType>,
     
     // Theme
     theme: Theme,
@@ -45,6 +55,10 @@ pub struct MenuConfigApp {
 
 impl MenuConfigApp {
     pub fn new(entries: Vec<crate::kconfig::ast::Entry>, symbol_table: SymbolTable) -> Result<Self> {
+        // Build dependency maps
+        let mut dependency_resolver = DependencyResolver::new();
+        dependency_resolver.build_from_entries(&entries);
+        
         let mut config_state = ConfigState::build_from_entries(&entries);
         
         // Initialize values from symbol table
@@ -71,11 +85,11 @@ impl MenuConfigApp {
             config_state,
             symbol_table,
             navigation: NavigationState::new(),
+            dependency_resolver,
             search_active: false,
             search_query: String::new(),
             focus: PanelFocus::MenuTree,
-            show_help_modal: false,
-            show_save_dialog: false,
+            dialog_type: None,
             theme: Theme::default(),
             status_message: None,
         })
@@ -128,12 +142,19 @@ impl MenuConfigApp {
         self.render_main_content(frame, chunks[2]);
         self.render_status_bar(frame, chunks[3]);
         
-        if self.show_help_modal {
-            self.render_help_modal(frame);
-        }
-        
-        if self.show_save_dialog {
-            self.render_save_dialog(frame);
+        // Render dialogs
+        if let Some(dialog) = &self.dialog_type {
+            match dialog {
+                DialogType::Help => self.render_help_modal(frame),
+                DialogType::Save => self.render_save_dialog(frame),
+                DialogType::DependencyError(error) => self.render_dependency_error_dialog(frame, error),
+                DialogType::CascadeWarning { symbol, affected } => {
+                    self.render_cascade_warning_dialog(frame, symbol, affected)
+                }
+                DialogType::ImplySuggestion { implied } => {
+                    self.render_imply_suggestion_dialog(frame, implied)
+                }
+            }
         }
     }
     
@@ -464,14 +485,20 @@ impl MenuConfigApp {
     }
     
     fn handle_key(&mut self, key: KeyEvent) -> Result<EventResult> {
-        // Handle modals first
-        if self.show_help_modal {
-            self.show_help_modal = false;
-            return Ok(EventResult::Continue);
-        }
-        
-        if self.show_save_dialog {
-            return self.handle_save_dialog_key(key);
+        // Handle dialogs first - check type without moving
+        let has_dialog = self.dialog_type.is_some();
+        if has_dialog {
+            return match &self.dialog_type {
+                Some(DialogType::Help) => {
+                    self.dialog_type = None;
+                    Ok(EventResult::Continue)
+                }
+                Some(DialogType::Save) => self.handle_save_dialog_key(key),
+                Some(DialogType::DependencyError(_)) => self.handle_dependency_error_dialog_key(key),
+                Some(DialogType::CascadeWarning { .. }) => self.handle_cascade_warning_dialog_key(key),
+                Some(DialogType::ImplySuggestion { .. }) => self.handle_imply_suggestion_dialog_key(key),
+                None => Ok(EventResult::Continue),
+            };
         }
         
         // Handle search mode
@@ -483,7 +510,7 @@ impl MenuConfigApp {
         match key.code {
             KeyCode::Char('q') | KeyCode::Char('Q') => {
                 if !self.config_state.modified_symbols.is_empty() {
-                    self.show_save_dialog = true;
+                    self.dialog_type = Some(DialogType::Save);
                     Ok(EventResult::Continue)
                 } else {
                     Ok(EventResult::Quit)
@@ -494,7 +521,7 @@ impl MenuConfigApp {
                 Ok(EventResult::Continue)
             }
             KeyCode::Char('?') => {
-                self.show_help_modal = true;
+                self.dialog_type = Some(DialogType::Help);
                 Ok(EventResult::Continue)
             }
             KeyCode::Char('/') => {
@@ -547,15 +574,15 @@ impl MenuConfigApp {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 self.save_config()?;
-                self.show_save_dialog = false;
+                self.dialog_type = None;
                 Ok(EventResult::Quit)
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
-                self.show_save_dialog = false;
+                self.dialog_type = None;
                 Ok(EventResult::Quit)
             }
             KeyCode::Esc => {
-                self.show_save_dialog = false;
+                self.dialog_type = None;
                 Ok(EventResult::Continue)
             }
             _ => Ok(EventResult::Continue),
@@ -584,6 +611,71 @@ impl MenuConfigApp {
             KeyCode::Char(c) => {
                 self.search_query.push(c);
                 self.navigation.selected_index = 0;
+                Ok(EventResult::Continue)
+            }
+            _ => Ok(EventResult::Continue),
+        }
+    }
+    
+    fn handle_dependency_error_dialog_key(&mut self, key: KeyEvent) -> Result<EventResult> {
+        match key.code {
+            KeyCode::Esc => {
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            _ => Ok(EventResult::Continue),
+        }
+    }
+    
+    fn handle_cascade_warning_dialog_key(&mut self, key: KeyEvent) -> Result<EventResult> {
+        // Extract symbol before any mutable operations
+        let symbol = if let Some(DialogType::CascadeWarning { symbol, .. }) = &self.dialog_type {
+            symbol.clone()
+        } else {
+            return Ok(EventResult::Continue);
+        };
+        
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Proceed with disabling
+                let new_val = ConfigValue::Bool(false);
+                self.apply_value_change(&symbol, new_val)?;
+                self.sync_ui_state_from_symbol_table()?;
+                self.update_enabled_states()?;
+                self.status_message = Some(format!(" {} disabled", symbol));
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            _ => Ok(EventResult::Continue),
+        }
+    }
+    
+    fn handle_imply_suggestion_dialog_key(&mut self, key: KeyEvent) -> Result<EventResult> {
+        // Extract implied list before any mutable operations
+        let implied = if let Some(DialogType::ImplySuggestion { implied }) = &self.dialog_type {
+            implied.clone()
+        } else {
+            return Ok(EventResult::Continue);
+        };
+        
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Enable implied symbols
+                for symbol in &implied {
+                    self.symbol_table.set_value(symbol, "y".to_string());
+                }
+                self.sync_ui_state_from_symbol_table()?;
+                self.update_enabled_states()?;
+                self.status_message = Some(format!(" Enabled: {}", implied.join(", ")));
+                self.dialog_type = None;
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.dialog_type = None;
                 Ok(EventResult::Continue)
             }
             _ => Ok(EventResult::Continue),
@@ -696,47 +788,148 @@ impl MenuConfigApp {
         };
         
         if let Some(new_val) = new_value {
-            // Update in config state
-            for item in &mut self.config_state.all_items {
-                if item.id == item_id {
-                    item.value = Some(new_val.clone());
-                    break;
-                }
-            }
+            let is_enabling = matches!(
+                new_val,
+                ConfigValue::Bool(true) | ConfigValue::Tristate(TristateValue::Yes | TristateValue::Module)
+            );
             
-            // Update in menu tree
-            for (_key, items) in self.config_state.menu_tree.iter_mut() {
-                for item in items {
-                    if item.id == item_id {
-                        item.value = Some(new_val.clone());
-                        break;
+            if is_enabling {
+                // Check dependencies before enabling
+                match self.dependency_resolver.can_enable(&item_id, &self.symbol_table) {
+                    Ok(_) => {
+                        // Apply the change
+                        self.apply_value_change(&item_id, new_val.clone())?;
+                        
+                        // Apply select cascade
+                        let selected = self.dependency_resolver.apply_selects(&item_id, &mut self.symbol_table);
+                        if !selected.is_empty() {
+                            self.status_message = Some(format!(
+                                " {} enabled (also enabled: {})",
+                                item_id,
+                                selected.join(", ")
+                            ));
+                        } else {
+                            self.status_message = Some(format!(" {} enabled", item_id));
+                        }
+                        
+                        // Check for implied symbols
+                        let implied = self.dependency_resolver.get_implied_symbols(&item_id, &self.symbol_table);
+                        if !implied.is_empty() {
+                            // Show suggestion dialog
+                            self.dialog_type = Some(DialogType::ImplySuggestion { implied });
+                        }
+                    }
+                    Err(e) => {
+                        // Show error dialog
+                        self.dialog_type = Some(DialogType::DependencyError(e));
+                        return Ok(());
+                    }
+                }
+            } else {
+                // Disabling
+                match self.dependency_resolver.can_disable(&item_id, &self.symbol_table) {
+                    Ok(_) => {
+                        // Check what will be affected
+                        let affected = self.dependency_resolver.check_disable_cascade(&item_id, &self.symbol_table);
+                        
+                        if !affected.is_empty() {
+                            // Warn user
+                            self.dialog_type = Some(DialogType::CascadeWarning {
+                                symbol: item_id.clone(),
+                                affected,
+                            });
+                        } else {
+                            self.apply_value_change(&item_id, new_val)?;
+                            self.status_message = Some(format!(" {} disabled", item_id));
+                        }
+                    }
+                    Err(e) => {
+                        self.dialog_type = Some(DialogType::DependencyError(e));
+                        return Ok(());
                     }
                 }
             }
             
-            // Update symbol table
-            let value_str = match new_val {
-                ConfigValue::Bool(true) => "y".to_string(),
-                ConfigValue::Bool(false) => "n".to_string(),
-                ConfigValue::Tristate(TristateValue::Yes) => "y".to_string(),
-                ConfigValue::Tristate(TristateValue::No) => "n".to_string(),
-                ConfigValue::Tristate(TristateValue::Module) => "m".to_string(),
-                ConfigValue::String(s) => format!("\"{}\"", s),
-                ConfigValue::Int(i) => i.to_string(),
-                ConfigValue::Hex(h) => h,
-            };
-            
-            self.symbol_table.set_value_tracked(&item_id, value_str.clone());
-            
-            // Track modification
-            let original = self.config_state.original_values.get(&item_id).cloned();
-            if original.as_deref() != Some(value_str.as_str()) {
-                self.config_state.modified_symbols.insert(item_id.clone(), value_str);
-            } else {
-                self.config_state.modified_symbols.remove(&item_id);
+            // Force UI refresh
+            self.sync_ui_state_from_symbol_table()?;
+            self.update_enabled_states()?;
+        }
+        
+        Ok(())
+    }
+    
+    fn apply_value_change(&mut self, item_id: &str, new_val: ConfigValue) -> Result<()> {
+        // Update symbol table
+        let value_str = match new_val {
+            ConfigValue::Bool(true) => "y".to_string(),
+            ConfigValue::Bool(false) => "n".to_string(),
+            ConfigValue::Tristate(TristateValue::Yes) => "y".to_string(),
+            ConfigValue::Tristate(TristateValue::No) => "n".to_string(),
+            ConfigValue::Tristate(TristateValue::Module) => "m".to_string(),
+            ConfigValue::String(s) => format!("\"{}\"", s),
+            ConfigValue::Int(i) => i.to_string(),
+            ConfigValue::Hex(h) => h,
+        };
+        
+        self.symbol_table.set_value_tracked(item_id, value_str.clone());
+        
+        // Track modification
+        let original = self.config_state.original_values.get(item_id).cloned();
+        if original.as_deref() != Some(value_str.as_str()) {
+            self.config_state.modified_symbols.insert(item_id.to_string(), value_str);
+        } else {
+            self.config_state.modified_symbols.remove(item_id);
+        }
+        
+        Ok(())
+    }
+    
+    /// Update enabled states based on dependencies
+    fn update_enabled_states(&mut self) -> Result<()> {
+        for item in &mut self.config_state.all_items {
+            if let MenuItemKind::Config { .. } | MenuItemKind::MenuConfig { .. } = &item.kind {
+                // Check if dependencies are met
+                item.is_enabled = self.dependency_resolver
+                    .can_enable(&item.id, &self.symbol_table)
+                    .is_ok();
             }
-            
-            self.status_message = Some(format!(" {} toggled", item_id));
+        }
+        
+        // Also update menu_tree
+        for (_key, items) in self.config_state.menu_tree.iter_mut() {
+            for item in items {
+                if let MenuItemKind::Config { .. } | MenuItemKind::MenuConfig { .. } = &item.kind {
+                    item.is_enabled = self.dependency_resolver
+                        .can_enable(&item.id, &self.symbol_table)
+                        .is_ok();
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Synchronize UI state from symbol table
+    /// This ensures the UI always shows current symbol values
+    fn sync_ui_state_from_symbol_table(&mut self) -> Result<()> {
+        // Update all_items
+        for item in &mut self.config_state.all_items {
+            if let MenuItemKind::Config { symbol_type } | MenuItemKind::MenuConfig { symbol_type } = &item.kind {
+                if let Some(value) = self.symbol_table.get_value(&item.id) {
+                    item.value = Some(Self::parse_value(&value, symbol_type));
+                }
+            }
+        }
+        
+        // Update menu_tree
+        for (_key, items) in self.config_state.menu_tree.iter_mut() {
+            for item in items {
+                if let MenuItemKind::Config { symbol_type } | MenuItemKind::MenuConfig { symbol_type } = &item.kind {
+                    if let Some(value) = self.symbol_table.get_value(&item.id) {
+                        item.value = Some(Self::parse_value(&value, symbol_type));
+                    }
+                }
+            }
         }
         
         Ok(())
@@ -760,5 +953,106 @@ impl MenuConfigApp {
         
         self.status_message = Some(" Configuration saved to .config".to_string());
         Ok(())
+    }
+    
+    fn render_dependency_error_dialog(&self, frame: &mut Frame, error: &DependencyError) {
+        let area = self.centered_rect(60, 40, frame.size());
+        
+        let message = match error {
+            DependencyError::DependencyNotMet { symbol, required } => {
+                vec![
+                    Line::from("⚠️  Dependency Not Met"),
+                    Line::from(""),
+                    Line::from(format!("Cannot enable: {}", symbol)),
+                    Line::from(""),
+                    Line::from(format!("Requires: {} (currently disabled)", required)),
+                    Line::from(""),
+                    Line::from("Press ESC to close"),
+                ]
+            }
+            DependencyError::SelectedBy { symbol, selector } => {
+                vec![
+                    Line::from("⚠️  Cannot Disable"),
+                    Line::from(""),
+                    Line::from(format!("Cannot disable: {}", symbol)),
+                    Line::from(""),
+                    Line::from(format!("Selected by: {} (currently enabled)", selector)),
+                    Line::from(""),
+                    Line::from("Press ESC to close"),
+                ]
+            }
+            DependencyError::ConditionNotMet { symbol, condition } => {
+                vec![
+                    Line::from("⚠️  Condition Not Met"),
+                    Line::from(""),
+                    Line::from(format!("Cannot enable: {}", symbol)),
+                    Line::from(""),
+                    Line::from(format!("Condition: {}", condition)),
+                    Line::from(""),
+                    Line::from("Press ESC to close"),
+                ]
+            }
+            _ => vec![Line::from(format!("Error: {}", error))],
+        };
+        
+        let dialog = Paragraph::new(message)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .title(" Dependency Error ")
+                .style(self.theme.get_warning_style()));
+        
+        frame.render_widget(dialog, area);
+    }
+    
+    fn render_cascade_warning_dialog(&self, frame: &mut Frame, symbol: &str, affected: &[String]) {
+        let area = self.centered_rect(60, 50, frame.size());
+        
+        let mut lines = vec![
+            Line::from("⚠️  Cascade Warning"),
+            Line::from(""),
+            Line::from(format!("Disabling {} will also affect:", symbol)),
+            Line::from(""),
+        ];
+        
+        for affected_symbol in affected {
+            lines.push(Line::from(format!("  • {}", affected_symbol)));
+        }
+        
+        lines.push(Line::from(""));
+        lines.push(Line::from("Continue? [Y/n/ESC]"));
+        
+        let dialog = Paragraph::new(lines)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .title(" Warning ")
+                .style(self.theme.get_warning_style()));
+        
+        frame.render_widget(dialog, area);
+    }
+    
+    fn render_imply_suggestion_dialog(&self, frame: &mut Frame, implied: &[String]) {
+        let area = self.centered_rect(60, 40, frame.size());
+        
+        let mut lines = vec![
+            Line::from("💡 Suggestion"),
+            Line::from(""),
+            Line::from("The following options are recommended:"),
+            Line::from(""),
+        ];
+        
+        for symbol in implied {
+            lines.push(Line::from(format!("  • {}", symbol)));
+        }
+        
+        lines.push(Line::from(""));
+        lines.push(Line::from("Enable them? [Y/n/ESC]"));
+        
+        let dialog = Paragraph::new(lines)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .title(" Suggestion ")
+                .style(self.theme.get_info_style()));
+        
+        frame.render_widget(dialog, area);
     }
 }
