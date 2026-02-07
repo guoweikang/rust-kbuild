@@ -49,3 +49,43 @@ fn test_menuconfig_app_initialization_with_defaults() {
     // The app should be created successfully with defaults
     assert!(app.is_ok(), "MenuConfigApp should be created successfully with default values");
 }
+
+/// Integration test: Load a config file and verify app initializes correctly
+#[test]
+fn test_menuconfig_app_with_config_file() {
+    use rust_kbuild::config::ConfigReader;
+    
+    // Create a temporary config file
+    let config_content = r#"
+CONFIG_HAVE_ARCH=y
+CONFIG_DEBUG=y
+CONFIG_VERBOSE=n
+"#;
+    
+    let temp_dir = std::env::temp_dir();
+    let config_path = temp_dir.join("test_config_menuconfig");
+    std::fs::write(&config_path, config_content).unwrap();
+    
+    // Parse Kconfig
+    let kconfig_path = PathBuf::from("examples/sample_project/Kconfig");
+    let srctree = PathBuf::from("examples/sample_project");
+    
+    let mut parser = Parser::new(&kconfig_path, &srctree).unwrap();
+    let ast = parser.parse().unwrap();
+    
+    // Load config file and build symbol table
+    let config_values = ConfigReader::read(&config_path).unwrap();
+    let mut symbol_table = SymbolTable::new();
+    for (name, value) in config_values {
+        symbol_table.set_value(&name, value);
+    }
+    
+    // Create MenuConfigApp with loaded config
+    let app = MenuConfigApp::new(ast.entries, symbol_table);
+    
+    // The app should be created successfully
+    assert!(app.is_ok(), "MenuConfigApp should be created successfully with config file");
+    
+    // Cleanup
+    std::fs::remove_file(config_path).ok();
+}
