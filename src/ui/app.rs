@@ -30,6 +30,21 @@ pub enum DialogType {
     DependencyError(DependencyError),
     CascadeWarning { symbol: String, affected: Vec<String> },
     ImplySuggestion { implied: Vec<String> },
+    EditString {
+        symbol: String,
+        current_value: String,
+        prompt: String,
+    },
+    EditInt {
+        symbol: String,
+        current_value: i64,
+        prompt: String,
+    },
+    EditHex {
+        symbol: String,
+        current_value: String,
+        prompt: String,
+    },
 }
 
 pub struct MenuConfigApp {
@@ -51,6 +66,10 @@ pub struct MenuConfigApp {
     
     // Status message
     status_message: Option<String>,
+    
+    // Input state for editing
+    input_buffer: String,
+    input_cursor: usize,
 }
 
 impl MenuConfigApp {
@@ -96,6 +115,8 @@ impl MenuConfigApp {
             dialog_type: None,
             theme: Theme::default(),
             status_message: None,
+            input_buffer: String::new(),
+            input_cursor: 0,
         })
     }
     
@@ -187,6 +208,33 @@ impl MenuConfigApp {
                 }
                 DialogType::ImplySuggestion { implied } => {
                     self.render_imply_suggestion_dialog(frame, implied)
+                }
+                DialogType::EditString { symbol, prompt, .. } => {
+                    self.render_input_dialog(
+                        frame,
+                        prompt,
+                        symbol,
+                        "String",
+                        "Enter text and press Enter to save",
+                    );
+                }
+                DialogType::EditInt { symbol, prompt, .. } => {
+                    self.render_input_dialog(
+                        frame,
+                        prompt,
+                        symbol,
+                        "Integer",
+                        "Enter a number (e.g., 123, -456)",
+                    );
+                }
+                DialogType::EditHex { symbol, prompt, .. } => {
+                    self.render_input_dialog(
+                        frame,
+                        prompt,
+                        symbol,
+                        "Hexadecimal",
+                        "Enter hex value (e.g., 0xFF, 0x1A2B)",
+                    );
                 }
             }
         }
@@ -531,6 +579,9 @@ impl MenuConfigApp {
                 Some(DialogType::DependencyError(_)) => self.handle_dependency_error_dialog_key(key),
                 Some(DialogType::CascadeWarning { .. }) => self.handle_cascade_warning_dialog_key(key),
                 Some(DialogType::ImplySuggestion { .. }) => self.handle_imply_suggestion_dialog_key(key),
+                Some(DialogType::EditString { .. })
+                | Some(DialogType::EditInt { .. })
+                | Some(DialogType::EditHex { .. }) => self.handle_input_dialog_key(key),
                 None => Ok(EventResult::Continue),
             };
         }
@@ -716,6 +767,72 @@ impl MenuConfigApp {
         }
     }
     
+    fn handle_input_dialog_key(&mut self, key: KeyEvent) -> Result<EventResult> {
+        match key.code {
+            KeyCode::Char(c) => {
+                // Filter input based on dialog type
+                if let Some(DialogType::EditInt { .. }) = &self.dialog_type {
+                    if !c.is_ascii_digit() && c != '-' {
+                        return Ok(EventResult::Continue);
+                    }
+                } else if let Some(DialogType::EditHex { .. }) = &self.dialog_type {
+                    if !c.is_ascii_hexdigit() && c != 'x' && c != 'X' {
+                        return Ok(EventResult::Continue);
+                    }
+                }
+                
+                self.input_buffer.insert(self.input_cursor, c);
+                self.input_cursor += 1;
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Backspace => {
+                if self.input_cursor > 0 {
+                    self.input_cursor -= 1;
+                    self.input_buffer.remove(self.input_cursor);
+                }
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Delete => {
+                if self.input_cursor < self.input_buffer.len() {
+                    self.input_buffer.remove(self.input_cursor);
+                }
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Left => {
+                if self.input_cursor > 0 {
+                    self.input_cursor -= 1;
+                }
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Right => {
+                if self.input_cursor < self.input_buffer.len() {
+                    self.input_cursor += 1;
+                }
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Home => {
+                self.input_cursor = 0;
+                Ok(EventResult::Continue)
+            }
+            KeyCode::End => {
+                self.input_cursor = self.input_buffer.len();
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Enter => {
+                self.save_input_dialog()?;
+                Ok(EventResult::Continue)
+            }
+            KeyCode::Esc => {
+                self.dialog_type = None;
+                self.focus = PanelFocus::MenuTree;
+                self.input_buffer.clear();
+                self.status_message = Some("✗ Edit cancelled".to_string());
+                Ok(EventResult::Continue)
+            }
+            _ => Ok(EventResult::Continue),
+        }
+    }
+    
     fn move_up(&mut self) {
         if self.navigation.selected_index > 0 {
             self.navigation.selected_index -= 1;
@@ -810,7 +927,61 @@ impl MenuConfigApp {
         let item = &items[self.navigation.selected_index];
         let item_id = item.id.clone();
         
-        // Toggle value
+        // Check if this is a string/int/hex config item that needs editing
+        if let MenuItemKind::Config { symbol_type } | MenuItemKind::MenuConfig { symbol_type } = &item.kind {
+            match symbol_type {
+                SymbolType::String => {
+                    let current = match &item.value {
+                        Some(ConfigValue::String(s)) => s.clone(),
+                        _ => String::new(),
+                    };
+                    self.dialog_type = Some(DialogType::EditString {
+                        symbol: item.id.clone(),
+                        current_value: current.clone(),
+                        prompt: item.label.clone(),
+                    });
+                    self.input_buffer = current;
+                    self.input_cursor = self.input_buffer.len();
+                    self.focus = PanelFocus::Dialog;
+                    return Ok(());
+                }
+                SymbolType::Int => {
+                    let current = match &item.value {
+                        Some(ConfigValue::Int(i)) => *i,
+                        _ => 0,
+                    };
+                    self.dialog_type = Some(DialogType::EditInt {
+                        symbol: item.id.clone(),
+                        current_value: current,
+                        prompt: item.label.clone(),
+                    });
+                    self.input_buffer = current.to_string();
+                    self.input_cursor = self.input_buffer.len();
+                    self.focus = PanelFocus::Dialog;
+                    return Ok(());
+                }
+                SymbolType::Hex => {
+                    let current = match &item.value {
+                        Some(ConfigValue::Hex(h)) => h.clone(),
+                        _ => "0x0".to_string(),
+                    };
+                    self.dialog_type = Some(DialogType::EditHex {
+                        symbol: item.id.clone(),
+                        current_value: current.clone(),
+                        prompt: item.label.clone(),
+                    });
+                    self.input_buffer = current;
+                    self.input_cursor = self.input_buffer.len();
+                    self.focus = PanelFocus::Dialog;
+                    return Ok(());
+                }
+                _ => {
+                    // Fall through to toggle logic for Bool/Tristate
+                }
+            }
+        }
+        
+        // Toggle value (for Bool/Tristate)
         let new_value = match &item.value {
             Some(ConfigValue::Bool(b)) => Some(ConfigValue::Bool(!b)),
             Some(ConfigValue::Tristate(t)) => Some(ConfigValue::Tristate(match t {
@@ -1088,5 +1259,180 @@ impl MenuConfigApp {
                 .style(self.theme.get_info_style()));
         
         frame.render_widget(dialog, area);
+    }
+    
+    fn render_input_dialog(
+        &self,
+        frame: &mut Frame,
+        prompt: &str,
+        symbol: &str,
+        type_name: &str,
+        hint: &str,
+    ) {
+        let dialog_width = frame.size().width.min(70);
+        let dialog_height = 12;
+        let x = (frame.size().width.saturating_sub(dialog_width)) / 2;
+        let y = (frame.size().height.saturating_sub(dialog_height)) / 2;
+        let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
+        
+        // Clear background
+        let bg = Block::default()
+            .style(Style::default().bg(ratatui::style::Color::Black));
+        frame.render_widget(bg, frame.size());
+        
+        // Dialog box
+        let title = format!(" Edit {} ({}) ", prompt, type_name);
+        let dialog_block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(Style::default().fg(ratatui::style::Color::Cyan));
+        frame.render_widget(dialog_block, dialog_area);
+        
+        // Content area with margin
+        let inner_width = dialog_width.saturating_sub(4);
+        let inner_height = dialog_height.saturating_sub(2);
+        let inner = Rect::new(x + 2, y + 1, inner_width, inner_height);
+        
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2),  // Symbol info
+                Constraint::Length(1),  // Spacer
+                Constraint::Length(3),  // Input box
+                Constraint::Length(1),  // Spacer
+                Constraint::Length(2),  // Hint
+                Constraint::Min(0),     // Spacer
+            ])
+            .split(inner);
+        
+        // Symbol info
+        let info = Paragraph::new(format!("Symbol: {}", symbol))
+            .style(Style::default().fg(ratatui::style::Color::Gray));
+        frame.render_widget(info, chunks[0]);
+        
+        // Input box with cursor
+        let max_display_width = inner_width.saturating_sub(4) as usize;
+        let display_start = if self.input_cursor > max_display_width {
+            self.input_cursor.saturating_sub(max_display_width)
+        } else {
+            0
+        };
+        let display_end = std::cmp::min(display_start + max_display_width, self.input_buffer.len());
+        let visible_text = &self.input_buffer[display_start..display_end];
+        let cursor_pos = self.input_cursor.saturating_sub(display_start);
+        
+        let input_display = if cursor_pos < visible_text.len() {
+            format!("│ {}█{} │", &visible_text[..cursor_pos], &visible_text[cursor_pos..])
+        } else {
+            format!("│ {}█ │", visible_text)
+        };
+        
+        let input_box = Paragraph::new(vec![
+            Line::from("┌───────────────────────────────────────┐"),
+            Line::from(input_display),
+            Line::from("└───────────────────────────────────────┘"),
+        ])
+        .style(Style::default().fg(ratatui::style::Color::White));
+        frame.render_widget(input_box, chunks[2]);
+        
+        // Hint
+        let hint_text = Paragraph::new(vec![
+            Line::from(hint).style(Style::default().fg(ratatui::style::Color::Yellow)),
+            Line::from("ESC: Cancel | Enter: Save").style(Style::default().fg(ratatui::style::Color::Gray)),
+        ]);
+        frame.render_widget(hint_text, chunks[4]);
+    }
+    
+    // Validation functions
+    fn validate_int(input: &str) -> Option<i64> {
+        input.trim().parse::<i64>().ok()
+    }
+    
+    fn validate_hex(input: &str) -> Option<String> {
+        let trimmed = input.trim();
+        if !trimmed.starts_with("0x") && !trimmed.starts_with("0X") {
+            return None;
+        }
+        let hex_part = &trimmed[2..];
+        if hex_part.is_empty() || !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        Some(format!("0x{}", hex_part.to_lowercase()))
+    }
+    
+    fn save_input_dialog(&mut self) -> Result<()> {
+        if let Some(dialog_type) = &self.dialog_type.clone() {
+            match dialog_type {
+                DialogType::EditString { symbol, .. } => {
+                    let new_value = self.input_buffer.clone();
+                    self.update_config_value(symbol, ConfigValue::String(new_value.clone()))?;
+                    self.symbol_table.set_value_tracked(symbol, format!("\"{}\"", new_value));
+                    self.status_message = Some(format!("✓ {} updated", symbol));
+                }
+                DialogType::EditInt { symbol, .. } => {
+                    if let Some(value) = Self::validate_int(&self.input_buffer) {
+                        self.update_config_value(symbol, ConfigValue::Int(value))?;
+                        self.symbol_table.set_value_tracked(symbol, value.to_string());
+                        self.status_message = Some(format!("✓ {} = {}", symbol, value));
+                    } else {
+                        self.status_message = Some("✗ Invalid integer".to_string());
+                        return Ok(()); // Don't close dialog
+                    }
+                }
+                DialogType::EditHex { symbol, .. } => {
+                    if let Some(value) = Self::validate_hex(&self.input_buffer) {
+                        self.update_config_value(symbol, ConfigValue::Hex(value.clone()))?;
+                        self.symbol_table.set_value_tracked(symbol, value.clone());
+                        self.status_message = Some(format!("✓ {} = {}", symbol, value));
+                    } else {
+                        self.status_message = Some("✗ Invalid hex (use 0xABC format)".to_string());
+                        return Ok(());
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        self.dialog_type = None;
+        self.focus = PanelFocus::MenuTree;
+        self.input_buffer.clear();
+        Ok(())
+    }
+    
+    fn update_config_value(&mut self, symbol: &str, new_value: ConfigValue) -> Result<()> {
+        // Update in all_items
+        for item in &mut self.config_state.all_items {
+            if item.id == symbol {
+                item.value = Some(new_value.clone());
+                break;
+            }
+        }
+        
+        // Update in menu_tree
+        for (_key, items) in self.config_state.menu_tree.iter_mut() {
+            for item in items {
+                if item.id == symbol {
+                    item.value = Some(new_value.clone());
+                    break;
+                }
+            }
+        }
+        
+        // Track modification
+        let value_str = match &new_value {
+            ConfigValue::String(s) => format!("\"{}\"", s),
+            ConfigValue::Int(i) => i.to_string(),
+            ConfigValue::Hex(h) => h.clone(),
+            _ => return Ok(()),
+        };
+        
+        let original = self.config_state.original_values.get(symbol).cloned();
+        if original.as_deref() != Some(value_str.as_str()) {
+            self.config_state.modified_symbols.insert(symbol.to_string(), value_str);
+        } else {
+            self.config_state.modified_symbols.remove(symbol);
+        }
+        
+        Ok(())
     }
 }

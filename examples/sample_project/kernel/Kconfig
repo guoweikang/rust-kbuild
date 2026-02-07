@@ -1,6 +1,26 @@
 config KERNEL_VERSION
 	string "Kernel version"
 	default "1.0.0"
+	help
+	  Enter the kernel version string.
+
+config MAX_CPUS
+	int "Maximum number of CPUs"
+	default 8
+	help
+	  Maximum number of CPUs supported.
+
+config MEMORY_BASE
+	hex "Memory base address"
+	default 0x80000000
+	help
+	  Base address of system memory.
+
+config LOG_LEVEL_NUM
+	int "Log level (0-7)"
+	default 4
+	help
+	  Kernel log level: 0=emerg, 7=debug
 
 config PREEMPT
 	bool "Preemptible kernel"
