@@ -1436,3 +1436,33 @@ impl MenuConfigApp {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_int() {
+        assert_eq!(MenuConfigApp::validate_int("123"), Some(123));
+        assert_eq!(MenuConfigApp::validate_int("-456"), Some(-456));
+        assert_eq!(MenuConfigApp::validate_int("0"), Some(0));
+        assert_eq!(MenuConfigApp::validate_int("  789  "), Some(789));
+        assert_eq!(MenuConfigApp::validate_int("abc"), None);
+        assert_eq!(MenuConfigApp::validate_int(""), None);
+        assert_eq!(MenuConfigApp::validate_int("12.34"), None);
+    }
+
+    #[test]
+    fn test_validate_hex() {
+        assert_eq!(MenuConfigApp::validate_hex("0xFF"), Some("0xff".to_string()));
+        assert_eq!(MenuConfigApp::validate_hex("0x1A2B"), Some("0x1a2b".to_string()));
+        assert_eq!(MenuConfigApp::validate_hex("0X100"), Some("0x100".to_string()));
+        assert_eq!(MenuConfigApp::validate_hex("0xaBcDeF"), Some("0xabcdef".to_string()));
+        assert_eq!(MenuConfigApp::validate_hex("0x0"), Some("0x0".to_string()));
+        assert_eq!(MenuConfigApp::validate_hex("  0xFF  "), Some("0xff".to_string()));
+        assert_eq!(MenuConfigApp::validate_hex("FF"), None);
+        assert_eq!(MenuConfigApp::validate_hex("0x"), None);
+        assert_eq!(MenuConfigApp::validate_hex("0xGG"), None);
+        assert_eq!(MenuConfigApp::validate_hex(""), None);
+    }
+}
