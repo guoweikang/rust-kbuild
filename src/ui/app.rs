@@ -64,19 +64,23 @@ impl MenuConfigApp {
         // Initialize values from symbol table
         for item in &mut config_state.all_items {
             if let MenuItemKind::Config { symbol_type } | MenuItemKind::MenuConfig { symbol_type } = &item.kind {
-                if let Some(value) = symbol_table.get_value(&item.id) {
-                    item.value = Some(Self::parse_value(&value, symbol_type));
-                    config_state.original_values.insert(item.id.clone(), value.clone());
-                } else {
-                    // Set default value based on type
-                    let default_val = match symbol_type {
-                        SymbolType::Bool => ConfigValue::Bool(false),
-                        SymbolType::Tristate => ConfigValue::Tristate(TristateValue::No),
-                        SymbolType::String => ConfigValue::String(String::new()),
-                        SymbolType::Int => ConfigValue::Int(0),
-                        SymbolType::Hex => ConfigValue::Hex("0x0".to_string()),
-                    };
-                    item.value = Some(default_val);
+                let symbol_type = symbol_type.clone();
+                let had_value = Self::initialize_item_value(item, &symbol_type, &symbol_table);
+                // Store original value for tracking modifications
+                if had_value {
+                    if let Some(value) = symbol_table.get_value(&item.id) {
+                        config_state.original_values.insert(item.id.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        
+        // Also initialize values in menu_tree (critical fix for checkbox display)
+        for (_, items) in config_state.menu_tree.iter_mut() {
+            for item in items {
+                if let MenuItemKind::Config { symbol_type } | MenuItemKind::MenuConfig { symbol_type } = &item.kind {
+                    let symbol_type = symbol_type.clone();
+                    Self::initialize_item_value(item, &symbol_type, &symbol_table);
                 }
             }
         }
@@ -93,6 +97,36 @@ impl MenuConfigApp {
             theme: Theme::default(),
             status_message: None,
         })
+    }
+    
+    /// Initialize the value for a menu item from the symbol table or set a default value.
+    /// 
+    /// This method looks up the item's value in the symbol table and updates the item's value field.
+    /// If no value is found in the symbol table, it sets a default value based on the symbol type.
+    /// 
+    /// # Arguments
+    /// * `item` - The menu item to initialize
+    /// * `symbol_type` - The type of the symbol (Bool, Tristate, String, Int, or Hex)
+    /// * `symbol_table` - The symbol table containing configuration values
+    /// 
+    /// # Returns
+    /// `true` if a value was found in the symbol table, `false` if a default was used
+    fn initialize_item_value(item: &mut MenuItem, symbol_type: &SymbolType, symbol_table: &SymbolTable) -> bool {
+        if let Some(value) = symbol_table.get_value(&item.id) {
+            item.value = Some(Self::parse_value(&value, symbol_type));
+            true
+        } else {
+            // Set default value based on type
+            let default_val = match symbol_type {
+                SymbolType::Bool => ConfigValue::Bool(false),
+                SymbolType::Tristate => ConfigValue::Tristate(TristateValue::No),
+                SymbolType::String => ConfigValue::String(String::new()),
+                SymbolType::Int => ConfigValue::Int(0),
+                SymbolType::Hex => ConfigValue::Hex("0x0".to_string()),
+            };
+            item.value = Some(default_val);
+            false
+        }
     }
     
     fn parse_value(value: &str, symbol_type: &SymbolType) -> ConfigValue {
