@@ -65,10 +65,12 @@ impl MenuConfigApp {
         for item in &mut config_state.all_items {
             if let MenuItemKind::Config { symbol_type } | MenuItemKind::MenuConfig { symbol_type } = &item.kind {
                 let symbol_type = symbol_type.clone();
-                Self::initialize_item_value(item, &symbol_type, &symbol_table);
-                // Store original value
-                if let Some(value) = symbol_table.get_value(&item.id) {
-                    config_state.original_values.insert(item.id.clone(), value.clone());
+                let had_value = Self::initialize_item_value(item, &symbol_type, &symbol_table);
+                // Store original value for tracking modifications
+                if had_value {
+                    if let Some(value) = symbol_table.get_value(&item.id) {
+                        config_state.original_values.insert(item.id.clone(), value.clone());
+                    }
                 }
             }
         }
@@ -97,10 +99,22 @@ impl MenuConfigApp {
         })
     }
     
-    /// Initialize the value for a menu item from the symbol table
-    fn initialize_item_value(item: &mut MenuItem, symbol_type: &SymbolType, symbol_table: &SymbolTable) {
+    /// Initialize the value for a menu item from the symbol table or set a default value.
+    /// 
+    /// This method looks up the item's value in the symbol table and updates the item's value field.
+    /// If no value is found in the symbol table, it sets a default value based on the symbol type.
+    /// 
+    /// # Arguments
+    /// * `item` - The menu item to initialize
+    /// * `symbol_type` - The type of the symbol (Bool, Tristate, String, Int, or Hex)
+    /// * `symbol_table` - The symbol table containing configuration values
+    /// 
+    /// # Returns
+    /// `true` if a value was found in the symbol table, `false` if a default was used
+    fn initialize_item_value(item: &mut MenuItem, symbol_type: &SymbolType, symbol_table: &SymbolTable) -> bool {
         if let Some(value) = symbol_table.get_value(&item.id) {
             item.value = Some(Self::parse_value(&value, symbol_type));
+            true
         } else {
             // Set default value based on type
             let default_val = match symbol_type {
@@ -111,6 +125,7 @@ impl MenuConfigApp {
                 SymbolType::Hex => ConfigValue::Hex("0x0".to_string()),
             };
             item.value = Some(default_val);
+            false
         }
     }
     
