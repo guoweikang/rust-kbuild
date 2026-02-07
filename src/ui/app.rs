@@ -772,7 +772,12 @@ impl MenuConfigApp {
             KeyCode::Char(c) => {
                 // Filter input based on dialog type
                 if let Some(DialogType::EditInt { .. }) = &self.dialog_type {
-                    if !c.is_ascii_digit() && c != '-' {
+                    // For integers, only allow digits and minus sign at position 0
+                    if c == '-' {
+                        if self.input_cursor != 0 {
+                            return Ok(EventResult::Continue);
+                        }
+                    } else if !c.is_ascii_digit() {
                         return Ok(EventResult::Continue);
                     }
                 } else if let Some(DialogType::EditHex { .. }) = &self.dialog_type {
@@ -1310,19 +1315,28 @@ impl MenuConfigApp {
             .style(Style::default().fg(ratatui::style::Color::Gray));
         frame.render_widget(info, chunks[0]);
         
-        // Input box with cursor
+        // Input box with cursor - handle scrolling and UTF-8 safely
         let max_display_width = inner_width.saturating_sub(4) as usize;
-        let display_start = if self.input_cursor > max_display_width {
-            self.input_cursor.saturating_sub(max_display_width)
+        let display_start = if self.input_cursor >= max_display_width {
+            self.input_cursor.saturating_sub(max_display_width - 1)
         } else {
             0
         };
         let display_end = std::cmp::min(display_start + max_display_width, self.input_buffer.len());
-        let visible_text = &self.input_buffer[display_start..display_end];
+        
+        // Use safe UTF-8 slicing
+        let visible_text = if display_start < self.input_buffer.len() {
+            &self.input_buffer[display_start..display_end]
+        } else {
+            ""
+        };
         let cursor_pos = self.input_cursor.saturating_sub(display_start);
         
+        // Build display string safely using character iteration
         let input_display = if cursor_pos < visible_text.len() {
-            format!("│ {}█{} │", &visible_text[..cursor_pos], &visible_text[cursor_pos..])
+            let before = visible_text.chars().take(cursor_pos).collect::<String>();
+            let after = visible_text.chars().skip(cursor_pos).collect::<String>();
+            format!("│ {}█{} │", before, after)
         } else {
             format!("│ {}█ │", visible_text)
         };
